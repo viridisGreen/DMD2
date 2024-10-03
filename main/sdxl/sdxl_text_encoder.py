@@ -1,6 +1,8 @@
 from transformers import CLIPTextModel, CLIPTextModelWithProjection
 import torch 
 
+#todo 把token id转换为text embedding, token id -> text embedding
+#* 可以简单理解为自定义了一种特殊的text encoder
 class SDXLTextEncoder(torch.nn.Module):
     def __init__(self, args, accelerator, dtype=torch.float32) -> None:
         super().__init__()
@@ -37,4 +39,6 @@ class SDXLTextEncoder(torch.nn.Module):
         prompt_embeds = torch.cat(prompt_embeds_list, dim=-1)
         pooled_prompt_embeds = pooled_prompt_embeds.view(len(text_input_ids_one), -1) # use the second text encoder's pooled prompt embeds (overwrite in for loop) 
         
+        #* prompt_embeds: 是拼接后的细粒度嵌入, 包含丰富的语义信息
+        #* pooled_prompt_embeds: 是整体的语义表示, 用于高层次的条件生成控制
         return prompt_embeds, pooled_prompt_embeds

@@ -34,6 +34,7 @@ class ModelWrapper:
         self.device = accelerator.device
 
         #* AutoTokenizer: 用于自动加载与特定模型兼容的Tokenizer
+        #* 有两个: 为了适应自定义的text encoder
         self.tokenizer_one = AutoTokenizer.from_pretrained(
             args.model_id, subfolder="tokenizer", revision=args.revision, use_fast=False
         )
@@ -61,14 +62,14 @@ class ModelWrapper:
         ).to(self.device) 
         self.tiny_vae_dtype = self.DTYPE
 
-        # Initialize Generator
+        # Initialize Generator  #* 一个使用指定ckpt的UNet2DConditionModel
         self.model = self.create_generator(args).to(dtype=self.DTYPE).to(self.device)
 
         self.accelerator = accelerator
         self.image_resolution = args.image_resolution
         self.latent_resolution = args.latent_resolution
         self.num_train_timesteps = args.num_train_timesteps
-        self.vae_downsample_ratio = self.image_resolution // self.latent_resolution
+        self.vae_downsample_ratio = self.image_resolution // self.latent_resolution  #* iamge -> latent
 
         self.conditioning_timestep = args.conditioning_timestep 
 
@@ -118,20 +119,23 @@ class ModelWrapper:
         generator.requires_grad_(False)  #* 禁用梯度计算 \ 后下划线: 原地操作
         return generator 
 
+    #? 暂时不清楚这个函数的作用是什么
+    #? 构建条件输入，为模型生成图像时提供关于图像尺寸和裁剪位置的额外信息（time_ids），然后将这些信息转换为一个 PyTorch 张量，用于后续模型生成过程中的条件控制
     def build_condition_input(self, height, width):
-        original_size = (height, width)
-        target_size = (height, width)
-        crop_top_left = (0, 0)
+        original_size = (height, width)  #* default: [1024, 1024]
+        target_size = (height, width)  #* 同上
+        crop_top_left = (0, 0)  #* 从左上角开始使用整个图像
 
-        add_time_ids = list(original_size + crop_top_left + target_size)
-        add_time_ids = torch.tensor([add_time_ids], device=self.device, dtype=self.DTYPE)
+        add_time_ids = list(original_size + crop_top_left + target_size)  #* [1024, 1024, 0, 0, 1024, 1024]
+        add_time_ids = torch.tensor([add_time_ids], device=self.device, dtype=self.DTYPE)  #* 类型转换为torch.tensor
         return add_time_ids
 
+    #* 将prompt转换为模型可理解的向量, 也就是token ID序列
     def _encode_prompt(self, prompt):
         text_input_ids_one = self.tokenizer_one(
             [prompt],
             padding="max_length",
-            max_length=self.tokenizer_one.model_max_length,
+            max_length=self.tokenizer_one.model_max_length,  #* 77
             truncation=True,
             return_tensors="pt",
         ).input_ids
@@ -139,7 +143,7 @@ class ModelWrapper:
         text_input_ids_two = self.tokenizer_two(
             [prompt],
             padding="max_length",
-            max_length=self.tokenizer_two.model_max_length,
+            max_length=self.tokenizer_two.model_max_length,  #* 77
             truncation=True,
             return_tensors="pt",
         ).input_ids
@@ -148,13 +152,14 @@ class ModelWrapper:
             'text_input_ids_one': text_input_ids_one.unsqueeze(0).to(self.device),
             'text_input_ids_two': text_input_ids_two.unsqueeze(0).to(self.device)
         }
-        return prompt_dict 
+        return prompt_dict  #* 返回一个字典
 
     @staticmethod  #* 返回系统时间 \ 静态方法, 与类的实例无关
     def _get_time():
         torch.cuda.synchronize()  #* 同步CPU和GPU
         return time.time()  #* 返回当前的系统时间
 
+    #* 根据现有信息生成图像, noise -> image
     def sample(self, noise, unet_added_conditions, prompt_embed, fast_vae_decode):
         alphas_cumprod = self.scheduler.alphas_cumprod.to(self.device)
 
@@ -167,32 +172,35 @@ class ModelWrapper:
         else:
             raise NotImplementedError()
         
-        DTYPE = prompt_embed.dtype
+        DTYPE = prompt_embed.dtype  #* [bsz, 77, 2048]
         
         for constant in all_timesteps:
-            current_timesteps = torch.ones(len(prompt_embed), device=self.device, dtype=torch.long)  *constant
-            eval_images = self.model(
+            current_timesteps = torch.ones(len(prompt_embed), device=self.device, dtype=torch.long)  *constant  #* [bsz个current_timesteps]
+            eval_images = self.model(  #* 一个unet \ unet的输出是类似字典的东西, 只有一个key, 是'sample'
                 noise, current_timesteps, prompt_embed, added_cond_kwargs=unet_added_conditions
-            ).sample
+            ).sample  #* [bsz, 4, 128, 128]
 
-            eval_images = get_x0_from_noise(
+            eval_images = get_x0_from_noise(  #* 通过<noise>和<pred_noise>(模型输出), 计算出clean image
                 noise, eval_images, alphas_cumprod, current_timesteps
             ).to(self.DTYPE)
 
+            #* refer to 原论文的 multi step generate, 先不管了
             next_timestep = current_timesteps - step_interval 
             noise = self.scheduler.add_noise(
                 eval_images, torch.randn_like(eval_images), next_timestep
             ).to(DTYPE)  
 
+        #* 把latent decode为image, latent -> image
         if fast_vae_decode:
             eval_images = self.tiny_vae.decode(eval_images.to(self.tiny_vae_dtype) / self.tiny_vae.config.scaling_factor, return_dict=False)[0]
         else:
             eval_images = self.vae.decode(eval_images.to(self.vae_dtype) / self.vae.config.scaling_factor, return_dict=False)[0]
+        #* standardization, 把图像从 [-1, 1] 映射到 [0, 255]
         eval_images = ((eval_images + 1.0) * 127.5).clamp(0, 255).to(torch.uint8).permute(0, 2, 3, 1)
         return eval_images 
 
 
-    @torch.no_grad()
+    @torch.no_grad()  #* 推理过程, 生成图片
     def inference(
         self,
         prompt: str,
@@ -211,28 +219,36 @@ class ModelWrapper:
 
         add_time_ids = self.build_condition_input(height, width).repeat(num_images, 1)  #* [bsz, 6]
 
+        #* 生成latent的随机噪声
         noise = torch.randn(  #* [bsz, 4, 128, 128]: 128是latent的分辨率, 常规的是96
             num_images, 4, height // self.vae_downsample_ratio, width // self.vae_downsample_ratio, 
             generator=generator
         ).to(device=self.device, dtype=self.DTYPE) 
 
-        #* 字典, 两个key分别是 'text_input_ids_one/two' 
-        prompt_inputs = self._encode_prompt(prompt)  #* [1, 1, 77]
+        #* 将prompt转换为模型可理解的向量(token ID)
+        prompt_inputs = self._encode_prompt(prompt)  #* [1, 1, 77] \ 字典, 两个key分别是 'text_input_ids_one/two' 
         
         start_time = self._get_time()
 
+        #* 把token ID转换为embedding: 普通的embedding & 池化的embedding(?用于模型的高层次条件信息)
+        #*     prompt_embeds: 是拼接后的细粒度嵌入, 包含丰富的语义信息 -> self.sample() -> self.moderl()
+        #*     pooled_prompt_embeds: 是整体的语义表示, 用于高层次的条件生成控制 -> unet_added_conditions -> self.model()
         prompt_embeds, pooled_prompt_embeds = self.text_encoder(prompt_inputs)  #* [1, 77, 2048], [1, 1280]
 
+        #* 将嵌入批量化, 为生成的每一张image提供文本嵌入
         batch_prompt_embeds, batch_pooled_prompt_embeds = (  #* [bsz, 77, 2048], [bsz, 1, 1280]
             prompt_embeds.repeat(num_images, 1, 1),
             pooled_prompt_embeds.repeat(num_images, 1, 1)
         )
 
+        #* 用于模型生成的附加条件信息 -> self.model()
+        #? 暂时不太清楚有什么用处
         unet_added_conditions = {
-            "time_ids": add_time_ids,
+            "time_ids": add_time_ids,  #* [bsz, 6]
             "text_embeds": batch_pooled_prompt_embeds.squeeze(1)  #* [bsz, 1280]
         }
 
+        #* 采样, 生成图片
         eval_images = self.sample(  #* [bsz, 1024, 1024, 3], 就是生成的图片
             noise=noise,
             unet_added_conditions=unet_added_conditions,
@@ -244,7 +260,7 @@ class ModelWrapper:
 
         output_image_list = [] 
         for image in eval_images:  #* image: [1024, 1024, 3]
-            output_image_list.append(PIL.Image.fromarray(image.cpu().numpy()))
+            output_image_list.append(PIL.Image.fromarray(image.cpu().numpy()))  #* 将图像转化为可显示格式
 
         if SAFETY_CHECKER:  #* 先不管
             has_nsfw_concepts = self.check_nsfw_images(output_image_list)

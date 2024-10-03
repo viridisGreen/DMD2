@@ -276,10 +276,17 @@ class SDTextDataset(Dataset):
 
         return output_dict 
     
+#* 根据噪声和模型预测的噪声, 通过公示计算出clean image
 def get_x0_from_noise(sample, model_output, alphas_cumprod, timestep):
     alpha_prod_t = alphas_cumprod[timestep].reshape(-1, 1, 1, 1)
     beta_prod_t = 1 - alpha_prod_t
 
+    #* beta_prod_t ** (0.5) * model_output: 
+    #       这部分表示模型预测的噪声量, beta_prod_t表示噪声的比例, 而模型的输出 model_output 是对当前噪声的预测
+    #* sample - beta_prod_t ** (0.5) * model_output: 
+    #       通过从噪声图像 sample 中减去噪声成分, 可以近似恢复去噪后的图像
+    #* / alpha_prod_t ** (0.5): 
+    #       由于原始图像的成分被 alpha_prod_t 缩放了, 因此需要除以 alpha_prod_t ** (0.5) 来恢复原始的比例
     pred_original_sample = (sample - beta_prod_t ** (0.5) * model_output) / alpha_prod_t ** (0.5)
     return pred_original_sample
 
