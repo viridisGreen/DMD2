@@ -1,3 +1,4 @@
+# region - imports
 import os
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 os.environ["GRADIO_TEMP_DIR"] = "/home/wanghesong/gradio_tmp"
@@ -17,6 +18,7 @@ from ipdb import set_trace as st
     
 SAFETY_CHECKER = False
 SDXL_CKPT_PATH = "/home/wanghesong/.cache/huggingface/hub/models--tianweiy--DMD2/snapshots/be22767697a1f3ca656b73c776e15fa335c86c6c/dmd2_sdxl_1step_unet_fp16.bin"
+# endregion - imports
 
 class ModelWrapper:
     def __init__(self, args, accelerator):

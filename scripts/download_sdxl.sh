@@ -1,4 +1,9 @@
-CHECKPOINT_PATH=$1
+export http_proxy=10.21.6.63:3128
+export https_proxy=10.21.6.63:3128
+export HF_ENDPOINT=https://hf-mirror.com
+
+# CHECKPOINT_PATH=$1
+CHECKPOINT_PATH=/datasets/wanghesong
 
 # training prompts 
 wget  https://huggingface.co/tianweiy/DMD2/resolve/main/data/laion/captions_laion_score6.25.pkl?download=true -O $CHECKPOINT_PATH/captions_laion_score6.25.pkl
