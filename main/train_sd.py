@@ -1,3 +1,4 @@
+# region - imports
 import matplotlib
 matplotlib.use('Agg')
 from main.utils import prepare_images_for_saving, draw_valued_array, draw_probability_histogram
@@ -20,6 +21,7 @@ import wandb
 import torch 
 import time 
 import os
+# endregion - imports
 
 class Trainer:
     def __init__(self, args):

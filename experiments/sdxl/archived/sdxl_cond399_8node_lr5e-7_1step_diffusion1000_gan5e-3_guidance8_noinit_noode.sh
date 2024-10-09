@@ -1,12 +1,11 @@
-export CHECKPOINT_PATH=./checkpoint
+export CHECKPOINT_PATH=$1
 export WANDB_ENTITY=$2
-# export WANDB_PROJECT=$3
-# export FSDP_DIR=$4
-# export RANK=$5
+export WANDB_PROJECT=$3
+export FSDP_DIR=$4
+export RANK=$5
 
 # accelerate launch --config_file fsdp_configs/fsdp_1node_debug.yaml main/train_sd.py  \
-# accelerate launch --config_file $FSDP_DIR/config_rank$RANK.yaml main/train_sd.py  \
-accelerate launch main/train_sd.py  \
+accelerate launch --config_file $FSDP_DIR/config_rank$RANK.yaml main/train_sd.py  \
     --generator_lr 5e-7  \
     --guidance_lr 5e-7 \
     --train_iters 100000000 \
