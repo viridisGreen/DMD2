@@ -97,9 +97,9 @@ class ModelWrapper:
             self.feature_extractor = CLIPFeatureExtractor.from_pretrained(
                 "openai/clip-vit-base-patch32", 
             )
-
-    #* 只有在SAFETY_CHECKER = True的时候才会调用, 先不管
+    
     def check_nsfw_images(self, images):
+        ''' 只有在SAFETY_CHECKER = True的时候才会调用, 先不管'''
         safety_checker_input = self.feature_extractor(images, return_tensors="pt") # .to(self.dviece)
         has_nsfw_concepts = self.safety_checker(
             clip_input=safety_checker_input.pixel_values.to(device=self.device, dtype=self.DTYPE),
@@ -107,8 +107,8 @@ class ModelWrapper:
         )
         return has_nsfw_concepts
 
-    #* 加载一个UNet2DConditionModel, 并使用指定的ckpt
     def create_generator(self, args):
+        ''' 加载一个UNet2DConditionModel, 并使用指定的ckpt'''
         generator = UNet2DConditionModel.from_pretrained(
             args.model_id,
             subfolder="unet"
@@ -123,11 +123,11 @@ class ModelWrapper:
         generator.mid_block = None
         # generator.transformer_layers_per_block = [1, 2, 4]
         return generator 
-
-    #* 应该是sdxl中用于尺寸控制的代码
+ 
     def build_condition_input(self, height, width):
+        ''' 应该是sdxl中用于尺寸控制的代码
         #? 暂时不清楚这个函数的作用是什么
-        #? 构建条件输入，为模型生成图像时提供关于图像尺寸和裁剪位置的额外信息（time_ids），然后将这些信息转换为一个 PyTorch 张量，用于后续模型生成过程中的条件控制
+        #? 构建条件输入, 为模型生成图像时提供关于图像尺寸和裁剪位置的额外信息(time_ids), 然后将这些信息转换为一个 PyTorch 张量, 用于后续模型生成过程中的条件控制'''
         original_size = (height, width)  #* default: [1024, 1024]
         target_size = (height, width)  #* 同上
         crop_top_left = (0, 0)  #* 从左上角开始使用整个图像
@@ -135,9 +135,9 @@ class ModelWrapper:
         add_time_ids = list(original_size + crop_top_left + target_size)  #* [1024, 1024, 0, 0, 1024, 1024]
         add_time_ids = torch.tensor([add_time_ids], device=self.device, dtype=self.DTYPE)  #* 类型转换为torch.tensor
         return add_time_ids
-
-    #* 将prompt转换为模型可理解的向量, 也就是token ID序列
+  
     def _encode_prompt(self, prompt):
+        ''' 将prompt转换为模型可理解的向量, 也就是token ID序列'''
         text_input_ids_one = self.tokenizer_one(
             [prompt],
             padding="max_length",
@@ -160,13 +160,14 @@ class ModelWrapper:
         }
         return prompt_dict  #* 返回一个字典
 
-    @staticmethod  #* 返回系统时间 \ 静态方法, 与类的实例无关
+    @staticmethod  
     def _get_time():
+        ''' 返回系统时间 \ 静态方法, 与类的实例无关'''
         torch.cuda.synchronize()  #* 同步CPU和GPU
         return time.time()  #* 返回当前的系统时间
 
-    #* 根据现有信息生成图像, noise -> image
     def sample(self, noise, unet_added_conditions, prompt_embed, fast_vae_decode):
+        ''' 根据现有信息生成图像, noise -> image'''
         alphas_cumprod = self.scheduler.alphas_cumprod.to(self.device)
 
         if self.num_step == 1:
@@ -205,8 +206,7 @@ class ModelWrapper:
         eval_images = ((eval_images + 1.0) * 127.5).clamp(0, 255).to(torch.uint8).permute(0, 2, 3, 1)
         return eval_images 
 
-
-    @torch.no_grad()  #* 推理过程, 生成图片
+    @torch.no_grad()  
     def inference(
         self,
         prompt: str,
@@ -216,6 +216,7 @@ class ModelWrapper:
         num_images: int,
         fast_vae_decode: bool
     ):
+        ''' 推理过程, 生成图片'''
         print("Running model inference...")
 
         if seed == -1:
@@ -279,8 +280,9 @@ class ModelWrapper:
         )
 
 
-#todo 创建一个基于gradio的前端页面
+
 def create_demo():
+    ''' 创建一个基于gradio的前端页面'''
     TITLE = "# DMD2-SDXL Demo"  #* 自定义的markdown标题
     parser = argparse.ArgumentParser()
     parser.add_argument("--latent_resolution", type=int, default=128)  #* latent sapce的分辨率
