@@ -124,9 +124,10 @@ class ModelWrapper:
         # generator.transformer_layers_per_block = [1, 2, 4]
         return generator 
 
-    #? 暂时不清楚这个函数的作用是什么
-    #? 构建条件输入，为模型生成图像时提供关于图像尺寸和裁剪位置的额外信息（time_ids），然后将这些信息转换为一个 PyTorch 张量，用于后续模型生成过程中的条件控制
+    #* 应该是sdxl中用于尺寸控制的代码
     def build_condition_input(self, height, width):
+        #? 暂时不清楚这个函数的作用是什么
+        #? 构建条件输入，为模型生成图像时提供关于图像尺寸和裁剪位置的额外信息（time_ids），然后将这些信息转换为一个 PyTorch 张量，用于后续模型生成过程中的条件控制
         original_size = (height, width)  #* default: [1024, 1024]
         target_size = (height, width)  #* 同上
         crop_top_left = (0, 0)  #* 从左上角开始使用整个图像
