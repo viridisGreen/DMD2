@@ -119,8 +119,10 @@ class ModelWrapper:
         #* 将'state_dict'加载到'generator'中, strict=True：要求模型的架构和检查点中的权重必须完全匹配
         print(generator.load_state_dict(state_dict, strict=True))
         generator.requires_grad_(False)  #* 禁用梯度计算 \ 后下划线: 原地操作
-        st()
-        generator.mid_block = None
+        # st()
+        # from torchsummary import summary
+        # exit()
+        # generator.mid_block = None
         # generator.transformer_layers_per_block = [1, 2, 4]
         return generator 
  
