@@ -119,12 +119,14 @@ class ModelWrapper:
         #* 将'state_dict'加载到'generator'中, strict=True：要求模型的架构和检查点中的权重必须完全匹配
         print(generator.load_state_dict(state_dict, strict=True))
         generator.requires_grad_(False)  #* 禁用梯度计算 \ 后下划线: 原地操作
+
         # st()
-        # from torchsummary import summary
-        # exit()
-        # generator.mid_block = None
-        # generator.transformer_layers_per_block = [1, 2, 4]
+        # pruned_generator = UNet2DConditionModel.from_config("./demo/sdxl_config.json")
+        # copy_weight_from_teacher(pruned_generator, generator, "bk_base")
+        # pruned_generator.requires_grad_(False)  #* 禁用梯度计算 \ 后下划线: 原地操作
+
         return generator 
+        # return pruned_generator
  
     def build_condition_input(self, height, width):
         ''' 应该是sdxl中用于尺寸控制的代码
@@ -281,6 +283,54 @@ class ModelWrapper:
             f"run successfully in {(end_time-start_time):.2f} seconds"
         )
 
+
+def copy_weight_from_teacher(unet_stu, unet_tea, student_type):
+    #todo 返回继承了参数但未经过剪枝的学生模型
+    #* 首先定义一个字典，用于存储stu和tea之间的映射关系
+    connect_info = {} # connect_info['TO-student'] = 'FROM-teacher'
+    if student_type in ["bk_base", "bk_small"]:
+        connect_info['up_blocks.0.resnets.1.'] = 'up_blocks.0.resnets.2.'
+        connect_info['up_blocks.1.resnets.1.'] = 'up_blocks.1.resnets.2.'
+        connect_info['up_blocks.1.attentions.1.'] = 'up_blocks.1.attentions.2.'
+        connect_info['up_blocks.2.resnets.1.'] = 'up_blocks.2.resnets.2.'
+        connect_info['up_blocks.2.attentions.1.'] = 'up_blocks.2.attentions.2.'
+        connect_info['up_blocks.3.resnets.1.'] = 'up_blocks.3.resnets.2.'
+        connect_info['up_blocks.3.attentions.1.'] = 'up_blocks.3.attentions.2.'
+    elif student_type in ["bk_tiny"]:
+        connect_info['up_blocks.0.resnets.0.'] = 'up_blocks.1.resnets.0.'
+        connect_info['up_blocks.0.attentions.0.'] = 'up_blocks.1.attentions.0.'
+        connect_info['up_blocks.0.resnets.1.'] = 'up_blocks.1.resnets.2.'
+        connect_info['up_blocks.0.attentions.1.'] = 'up_blocks.1.attentions.2.'
+        connect_info['up_blocks.0.upsamplers.'] = 'up_blocks.1.upsamplers.'
+        connect_info['up_blocks.1.resnets.0.'] = 'up_blocks.2.resnets.0.'
+        connect_info['up_blocks.1.attentions.0.'] = 'up_blocks.2.attentions.0.'
+        connect_info['up_blocks.1.resnets.1.'] = 'up_blocks.2.resnets.2.'
+        connect_info['up_blocks.1.attentions.1.'] = 'up_blocks.2.attentions.2.'
+        connect_info['up_blocks.1.upsamplers.'] = 'up_blocks.2.upsamplers.'
+        connect_info['up_blocks.2.resnets.0.'] = 'up_blocks.3.resnets.0.'
+        connect_info['up_blocks.2.attentions.0.'] = 'up_blocks.3.attentions.0.'
+        connect_info['up_blocks.2.resnets.1.'] = 'up_blocks.3.resnets.2.'
+        connect_info['up_blocks.2.attentions.1.'] = 'up_blocks.3.attentions.2.'       
+    else:
+        raise NotImplementedError
+
+
+    for k in unet_stu.state_dict().keys(): #* 变量模型所有参数（的key）, .state_dict(): 返回模型的状态字典，包含了模型所有参数的名称和值
+        flag = 0 #* 标志变量，用于指示当前键是否需要强制复制
+        k_orig = k #* 初始的键名，用于在需要时替换前缀
+        for prefix_key in connect_info.keys(): #* 遍历需要被复制的参数
+            if k.startswith(prefix_key): #* 判断当前参数是否需要继承teacher model
+                flag = 1
+                k_orig = k_orig.replace(prefix_key, connect_info[prefix_key]) #* 替换前缀, str.replace(old, new)         
+                break
+
+        if flag == 1:
+            print(f"** forced COPY {k_orig} -> {k}")
+        else:
+            print(f"normal COPY {k_orig} -> {k}")
+        unet_stu.state_dict()[k].copy_(unet_tea.state_dict()[k_orig]) #* copy_(): 将一个张量的值复制到另一个张量中
+
+    return unet_stu
 
 
 def create_demo():
